@@ -1,0 +1,245 @@
+import jakarta.persistence.*;
+import jakarta.validation.constraints.*;
+
+@Entity
+public class Student {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long studentId;
+
+    @NotBlank(message = "Name is required")
+    private String name;
+
+    @Min(value = 3, message = "Age must be at least 3")
+    @Max(value = 100, message = "Age must be less than 100")
+    private int age;
+
+    @NotBlank(message = "Class is required")
+    private String studentClass;
+
+    @Email(message = "Email should be valid")
+    private String email;
+
+    @NotBlank(message = "Address is required")
+    private String address;
+
+    // getters and setters
+}
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface StudentRepository extends JpaRepository<Student, Long> {
+
+    Page<Student> findByNameContainingIgnoreCase(String name, Pageable pageable);
+
+    Page<Student> findByStudentClassContainingIgnoreCase(String studentClass, Pageable pageable);
+}
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.*;
+import org.springframework.stereotype.Service;
+
+@Service
+public class StudentService {
+
+    @Autowired
+    private StudentRepository studentRepo;
+
+    public Page<Student> getAllStudents(int pageNo, int pageSize) {
+        Pageable pageable = PageRequest.of(pageNo, pageSize);
+        return studentRepo.findAll(pageable);
+    }
+
+    public Page<Student> searchByName(String name, int pageNo, int pageSize) {
+        Pageable pageable = PageRequest.of(pageNo, pageSize);
+        return studentRepo.findByNameContainingIgnoreCase(name, pageable);
+    }
+
+    public Page<Student> searchByClass(String studentClass, int pageNo, int pageSize) {
+        Pageable pageable = PageRequest.of(pageNo, pageSize);
+        return studentRepo.findByStudentClassContainingIgnoreCase(studentClass, pageable);
+    }
+
+    public Student saveStudent(Student student) {
+        return studentRepo.save(student);
+    }
+
+    public Student getStudentById(Long id) {
+        return studentRepo.findById(id).orElse(null);
+    }
+
+    public void deleteStudent(Long id) {
+        studentRepo.deleteById(id);
+    }
+}
+import jakarta.validation.Valid;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.*;
+
+@Controller
+@RequestMapping("/students")
+public class StudentController {
+
+    @Autowired
+    private StudentService studentService;
+
+    private final int PAGE_SIZE = 5;
+
+    // List students with pagination and optional search
+    @GetMapping
+    public String listStudents(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(required = false) String name,
+            @RequestParam(required = false) String studentClass,
+            Model model) {
+
+        Page<Student> studentPage;
+
+        if (name != null && !name.isEmpty()) {
+            studentPage = studentService.searchByName(name, page, PAGE_SIZE);
+        } else if (studentClass != null && !studentClass.isEmpty()) {
+            studentPage = studentService.searchByClass(studentClass, page, PAGE_SIZE);
+        } else {
+            studentPage = studentService.getAllStudents(page, PAGE_SIZE);
+        }
+
+        model.addAttribute("students", studentPage.getContent());
+        model.addAttribute("currentPage", page);
+        model.addAttribute("totalPages", studentPage.getTotalPages());
+        model.addAttribute("name", name);
+        model.addAttribute("studentClass", studentClass);
+
+        return "students/list";
+    }
+
+    // Show form for new student
+    @GetMapping("/new")
+    public String showCreateForm(Student student) {
+        return "students/add";
+    }
+
+    // Save new student
+    @PostMapping
+    public String saveStudent(@Valid Student student, BindingResult result, Model model) {
+        if (result.hasErrors()) {
+            return "students/add";
+        }
+        studentService.saveStudent(student);
+        return "redirect:/students";
+    }
+
+    // Show form for edit
+    @GetMapping("/edit/{id}")
+    public String showUpdateForm(@PathVariable("id") Long id, Model model) {
+        Student student = studentService.getStudentById(id);
+        if (student == null) {
+            model.addAttribute("errorMessage", "Student not found");
+            return "error";
+        }
+        model.addAttribute("student", student);
+        return "students/edit";
+    }
+
+    // Update student
+    @PostMapping("/update/{id}")
+    public String updateStudent(@PathVariable("id") Long id, @Valid Student student,
+                                BindingResult result, Model model) {
+        if (result.hasErrors()) {
+            student.setStudentId(id);
+            return "students/edit";
+        }
+        studentService.saveStudent(student);
+        return "redirect:/students";
+    }
+
+    // Delete student
+    @GetMapping("/delete/{id}")
+    public String deleteStudent(@PathVariable("id") Long id) {
+        studentService.deleteStudent(id);
+        return "redirect:/students";
+    }
+}
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Student List</title>
+</head>
+<body>
+<h2>Students</h2>
+
+<form th:action="@{/students}" method="get">
+    <input type="text" name="name" placeholder="Search by Name" th:value="${name}">
+    <input type="text" name="studentClass" placeholder="Search by Class" th:value="${studentClass}">
+    <button type="submit">Search</button>
+    <a th:href="@{/students}">Clear</a>
+</form>
+
+<a th:href="@{/students/new}">Add New Student</a>
+
+<table border="1">
+    <tr>
+        <th>Name</th><th>Age</th><th>Class</th><th>Email</th><th>Address</th><th>Actions</th>
+    </tr>
+    <tr th:each="student : ${students}">
+        <td th:text="${student.name}"></td>
+        <td th:text="${student.age}"></td>
+        <td th:text="${student.studentClass}"></td>
+        <td th:text="${student.email}"></td>
+        <td th:text="${student.address}"></td>
+        <td>
+            <a th:href="@{'/students/edit/' + ${student.studentId}}">Edit</a> |
+            <a th:href="@{'/students/delete/' + ${student.studentId}}" onclick="return confirm('Are you sure?')">Delete</a>
+        </td>
+    </tr>
+</table>
+
+<div>
+    <span>Page [[${currentPage + 1}]] of [[${totalPages}]]</span>
+</div>
+
+<div>
+    <span th:if="${currentPage > 0}">
+        <a th:href="@{|/students?page=${currentPage - 1}|}">Previous</a>
+    </span>
+    <span th:if="${currentPage + 1 < totalPages}">
+        <a th:href="@{|/students?page=${currentPage + 1}|}">Next</a>
+    </span>
+</div>
+
+</body>
+</html>
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <title>Add Student</title>
+</head>
+<body>
+<h2>Add New Student</h2>
+
+<form th:action="@{/students}" th:object="${student}" method="post">
+    <label>Name:</label>
+    <input type="text" th:field="*{name}"/>
+    <span th:if="${#fields.hasErrors('name')}" th:errors="*{name}"></span><br/>
+
+    <label>Age:</label>
+    <input type="number" th:field="*{age}"/>
+    <span th:if="${#fields.hasErrors('age')}" th:errors="*{age}"></span><br/>
+
+    <label>Class:</label>
+    <input type="text" th:field="*{studentClass}"/>
+    <span th:if="${#fields.hasErrors('studentClass')}" th:errors="*{studentClass}"></span><br/>
+
+    <label>Email:</label>
+    <input type="email" th:field="*{email}"/>
+    <span th:if="${#fields.hasErrors('email')}" th:errors="*{email}"></span><br/>
+
+    <label>Address:</label>
+    <input type="text" th:field="*{address}"/>
+    <span th:if="${#fields.hasErrors('address')}" th:errors="*{address}"></span>
+
+
